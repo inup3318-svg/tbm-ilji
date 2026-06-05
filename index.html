@@ -349,7 +349,7 @@ td{padding:.75rem 1rem;border-top:1px solid var(--divider);vertical-align:top}
 // ── STATE ─────────────────────────────────────────
 const ADMIN_PW = '1234'; // 비밀번호 (여기서 변경 가능)
 let isAdmin = false;
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxJXvecsxhf3EbVu2Ymk64TIxo_s4xRyeDmZ9C123Ojlc8m9KUQoeTmrmVN0P6fmpQ/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxl1Q3UzcV8l6bprztAc4l4PElTbfElm5M5U5LAyaShHZx758HLyB5OAdXLCTQY9g/exec';
 const HOLIDAYS=['2025-01-01','2025-01-28','2025-01-29','2025-01-30','2025-03-01','2025-05-05','2025-05-06','2025-05-15','2025-06-06','2025-08-15','2025-10-03','2025-10-06','2025-10-07','2025-10-08','2025-10-09','2025-11-04','2025-12-25','2026-01-01','2026-02-16','2026-02-17','2026-02-18','2026-03-01','2026-05-05','2026-05-24','2026-06-06','2026-08-15','2026-09-24','2026-09-25','2026-09-26','2026-10-03','2026-10-09','2026-12-25'];
 let sites = ["이천 1공구 현장","이천 2공구 현장","여주 도로공사 현장"];
 let logs = [];
@@ -363,7 +363,10 @@ async function syncLog(log){
   if(!SCRIPT_URL){showSync('offline');return;}
   showSync('syncing');
   try{
-    const r=await fetch(SCRIPT_URL,{method:'POST',redirect:'follow',body:JSON.stringify({action:'saveLog',log})});
+    // base64 사진 제외하고 전송 (시트 용량 절약)
+    const logToSend = Object.assign({}, log);
+    if(logToSend.photos) logToSend.photos = logToSend.photos.map(p => p.startsWith('data:') ? '' : p).filter(p=>p);
+    const r=await fetch(SCRIPT_URL,{method:'POST',redirect:'follow',body:JSON.stringify({action:'saveLog',log:logToSend})});
     const text=await r.text();
     const d=JSON.parse(text);
     showSync(d.result==='ok'?'ok':'error');
@@ -515,7 +518,7 @@ function renderPanel(){
       <span class="site-dot s${i%8}" style="background:${siteColor(i)}"></span>
       <div style="flex:1">
         <div class="site-name">${s}</div>
-        ${submitted ? `<div class="site-meta">${log.author} · 참석 ${log.count}명</div>` : ''}
+        ${submitted ? `<div class="site-meta">${log.jobname?log.jobname+' · ':''}${log.author} · 참석 ${log.count}명</div>` : ''}
       </div>
       <div>
         <div class="site-status ${submitted?'status-ok':'status-no'}">${submitted?'✅ 제출완료':'⬜ 미제출'}</div>
@@ -537,55 +540,150 @@ function handleSiteClick(site, date){
   writeCtx = { site, date };
   openWriteScreen(log);
 }
+function initRiskPairs(data){
+  const box = document.getElementById('risk-pairs');
+  box.innerHTML = '';
+  const items = (data && data.length) ? data : [{risk:'',action:''},{risk:'',action:''},{risk:'',action:''}];
+  items.forEach((item,i) => addRiskPair(item.risk, item.action, i+1));
+}
+function addRiskPair(risk='', action='', num=null){
+  const box = document.getElementById('risk-pairs');
+  const idx = num || box.children.length + 1;
+  const row = document.createElement('div');
+  row.className = 'risk-pair';
+  row.style.cssText = 'display:grid;grid-template-columns:auto 1fr 1fr auto;gap:.4rem;align-items:start;margin-bottom:.3rem';
+  row.innerHTML = `<span style="padding-top:.6rem;font-weight:700;color:var(--primary);min-width:1.2rem">${idx}.</span>
+    <div><label style="font-size:.75rem;color:var(--muted)">잠재위험요인</label><textarea class="ftextarea rp-risk" placeholder="위험요인 입력" style="min-height:52px">${risk}</textarea></div>
+    <div><label style="font-size:.75rem;color:var(--muted)">대책</label><textarea class="ftextarea rp-action" placeholder="대책 입력" style="min-height:52px">${action}</textarea></div>
+    <button type="button" onclick="this.parentElement.remove();renumberRisk()" style="padding:.3rem .4rem;margin-top:1.4rem;border:1px solid var(--border);border-radius:6px;background:none;color:var(--muted);cursor:pointer;line-height:1">✕</button>`;
+  box.appendChild(row);
+}
+function renumberRisk(){
+  document.querySelectorAll('#risk-pairs .risk-pair').forEach((row,i)=>{
+    row.querySelector('span').innerHTML = `&#${9311+i+1};`;
+  });
+}
+
+function initSafetyChecks(data){
+  const box = document.getElementById('safety-checks');
+  box.innerHTML = '';
+  const items = (data && data.length) ? data : [{item:'',result:'',action:''},{item:'',result:'',action:''},{item:'',result:'',action:''}];
+  items.forEach(item => addSafetyCheck(item.item, item.result, item.action));
+}
+function addSafetyCheck(item='', result='', action=''){
+  const box = document.getElementById('safety-checks');
+  const id = Date.now() + Math.random();
+  const row = document.createElement('div');
+  row.className = 'sc-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr auto auto 1fr auto;gap:.4rem;align-items:center;padding:.4rem;background:var(--surface);border-radius:8px;border:1px solid var(--border)';
+  row.innerHTML = `<input class="finput sc-item" placeholder="안전조치 항목" value="${item}" style="font-size:.85rem">
+    <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer;font-size:.85rem;white-space:nowrap"><input type="radio" class="sc-yes" name="sc_${id}" ${result==='예'?'checked':''}><span>예</span></label>
+    <label style="display:flex;align-items:center;gap:.25rem;cursor:pointer;font-size:.85rem;white-space:nowrap"><input type="radio" class="sc-no" name="sc_${id}" ${result==='아니오'?'checked':''}><span>아니오</span></label>
+    <input class="finput sc-action" placeholder="미조치 시 내용" value="${action}" style="font-size:.85rem">
+    <button type="button" onclick="this.parentElement.remove()" style="padding:.3rem .4rem;border:1px solid var(--border);border-radius:6px;background:none;color:var(--muted);cursor:pointer;line-height:1">✕</button>`;
+  box.appendChild(row);
+}
+
+function initAttendees(data){
+  const grid = document.getElementById('attendees-grid');
+  grid.innerHTML = '';
+  for(let i=0;i<18;i++){
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'finput attendee-input';
+    inp.placeholder = `참석자 ${i+1}`;
+    inp.style.fontSize = '.85rem';
+    inp.value = (data && data[i]) ? data[i] : '';
+    grid.appendChild(inp);
+  }
+}
+
 function openWriteScreen(existingLog){
   document.getElementById('f-site').value = writeCtx.site;
   document.getElementById('f-date').value = writeCtx.date;
   document.getElementById('write-title').innerHTML = `TBM 일지 작성<small>${writeCtx.site} · ${fmtDate(writeCtx.date)}</small>`;
   const banner = document.getElementById('submitted-banner-wrap');
-  if(existingLog && isAdmin){
+  const l = existingLog;
+  if(l && isAdmin){
     banner.innerHTML = `<div class="submitted-banner"><span style="font-size:1.25rem">✅</span><div><div style="font-weight:700">이미 제출된 일지가 있습니다</div><div style="font-size:clamp(.75rem,.7rem + .25vw,.875rem);color:var(--muted);margin-top:2px">관리자 권한으로 수정하거나 새 일지를 추가할 수 있습니다.</div></div></div>`;
-    // 기존 내용 채우기
-    document.getElementById('f-author').value = existingLog.author||'';
-    document.getElementById('f-count').value = existingLog.count||'';
-    document.getElementById('f-work').value = existingLog.work||'';
-    document.getElementById('f-risk').value = existingLog.risk||'';
-    document.getElementById('f-safety').value = existingLog.safety||'';
-    document.getElementById('f-note').value = existingLog.note||'';
-    document.getElementById('f-equip-count').value = existingLog.equipCount||0;
-    document.getElementById('f-equip-type').value = existingLog.equipType||'';
-    document.getElementById('f-new-worker').value = existingLog.newWorker||0;
-    document.getElementById('f-new-worker-briefed').checked = existingLog.newWorkerBriefed||false;
+    document.getElementById('f-jobname').value = l.jobname||'';
+    document.getElementById('f-tbm-place').value = l.tbmPlace||'';
+    document.getElementById('f-author').value = l.author||'';
+    document.getElementById('f-count').value = l.count||'';
+    document.getElementById('f-work').value = l.work||'';
+    document.getElementById('f-leader-dept').value = l.leaderDept||'';
+    document.getElementById('f-leader-title').value = l.leaderTitle||'';
+    document.querySelector(`input[name="riskAssess"][value="${l.riskAssess||'no'}"]`).checked = true;
+    document.getElementById('f-key-risk').value = l.keyRisk||'';
+    document.getElementById('f-key-action').value = l.keyAction||'';
+    document.getElementById('f-daily-check').value = l.dailyCheck||'';
+    document.getElementById('f-closing').value = l.closing||'';
+    document.getElementById('f-equip-count').value = l.equipCount||0;
+    document.getElementById('f-equip-type').value = l.equipType||'';
+    document.getElementById('f-new-worker').value = l.newWorker||0;
+    document.getElementById('f-new-worker-briefed').checked = l.newWorkerBriefed||false;
+    initRiskPairs(l.riskPairs);
+    initSafetyChecks(l.safetyChecks);
+    initAttendees(l.attendees);
   } else {
     banner.innerHTML='';
     document.getElementById('tbm-form').reset();
     document.getElementById('f-site').value = writeCtx.site;
     document.getElementById('f-date').value = writeCtx.date;
+    initRiskPairs([]);
+    initSafetyChecks([]);
+    initAttendees([]);
   }
   switchScreen('write');
 }
+
 document.getElementById('back-btn').addEventListener('click', ()=>{ switchScreen('calendar'); });
 document.getElementById('form-cancel').addEventListener('click', ()=>{ switchScreen('calendar'); });
 
 document.getElementById('tbm-form').addEventListener('submit', e=>{
   e.preventDefault();
-  const checklist=[];
-  document.querySelectorAll('.ck-item input[type=checkbox]').forEach(ck=>{ if(ck.checked) checklist.push(ck.nextElementSibling.textContent); });
+  // 잠재위험요인 수집
+  const riskPairs=[];
+  document.querySelectorAll('#risk-pairs .risk-pair').forEach(row=>{
+    riskPairs.push({risk:row.querySelector('.rp-risk').value.trim(), action:row.querySelector('.rp-action').value.trim()});
+  });
+  // 안전조치 확인 수집
+  const safetyChecks=[];
+  document.querySelectorAll('#safety-checks .sc-row').forEach(row=>{
+    const yes=row.querySelector('.sc-yes').checked;
+    const no=row.querySelector('.sc-no').checked;
+    safetyChecks.push({item:row.querySelector('.sc-item').value.trim(), result:yes?'예':no?'아니오':'', action:row.querySelector('.sc-action').value.trim()});
+  });
+  // 참석자 수집
+  const attendees=[];
+  document.querySelectorAll('#attendees-grid .attendee-input').forEach(inp=>{
+    if(inp.value.trim()) attendees.push(inp.value.trim());
+  });
   const log={
     id: Date.now(),
     site: document.getElementById('f-site').value,
     date: document.getElementById('f-date').value,
+    jobname: document.getElementById('f-jobname').value.trim(),
+    tbmPlace: document.getElementById('f-tbm-place').value.trim(),
     author: document.getElementById('f-author').value.trim(),
     count: parseInt(document.getElementById('f-count').value)||0,
     work: document.getElementById('f-work').value.trim(),
-    risk: document.getElementById('f-risk').value.trim(),
-    safety: document.getElementById('f-safety').value.trim(),
-    checklist,
-    note: document.getElementById('f-note').value.trim(),
+    leaderDept: document.getElementById('f-leader-dept').value.trim(),
+    leaderTitle: document.getElementById('f-leader-title').value.trim(),
+    riskAssess: document.querySelector('input[name="riskAssess"]:checked')?.value||'no',
+    riskPairs,
+    keyRisk: document.getElementById('f-key-risk').value.trim(),
+    keyAction: document.getElementById('f-key-action').value.trim(),
+    safetyChecks,
+    dailyCheck: document.getElementById('f-daily-check').value.trim(),
+    closing: document.getElementById('f-closing').value.trim(),
+    attendees,
     equipCount: parseInt(document.getElementById('f-equip-count').value)||0,
     equipType: document.getElementById('f-equip-type').value.trim(),
     newWorker: parseInt(document.getElementById('f-new-worker').value)||0,
     newWorkerBriefed: document.getElementById('f-new-worker-briefed').checked,
-    createdAt: new Date().toLocaleString('ko-KR')
+    createdAt: new Date().toLocaleString('ko-KR'),
+    risk:'', safety:'', checklist:[], note:''
   };
   logs.unshift(log);
   selDate = log.date;
@@ -597,24 +695,86 @@ document.getElementById('tbm-form').addEventListener('submit', e=>{
 // ── DETAIL MODAL ───────────────────────────────────
 function openDetail(id){
   const l=logs.find(x=>x.id===id); if(!l) return; detailId=id;
-  document.getElementById('det-title').innerHTML=`<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${siteColor(sites.indexOf(l.site))};margin-right:.5rem;vertical-align:middle"></span>${l.site} — ${l.date}`;
+  document.getElementById('det-title').innerHTML=`<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${siteColor(sites.indexOf(l.site))};margin-right:.5rem;vertical-align:middle"></span>${l.site} — ${fmtDate(l.date)}`;
+
+  // 잠재위험요인 렌더
+  const riskPairsHtml = (l.riskPairs && l.riskPairs.length)
+    ? l.riskPairs.map((r,i)=>`<tr><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider);vertical-align:top;font-weight:600;color:var(--primary)">&#${9311+i+1};</td><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider)">${r.risk||'-'}</td><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider)">${r.action||'-'}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="padding:.5rem;color:var(--muted)">-</td></tr>';
+
+  // 안전조치 렌더
+  const safetyHtml = (l.safetyChecks && l.safetyChecks.length)
+    ? l.safetyChecks.map((s,i)=>`<tr><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider)">&#${9311+i+1}; ${s.item||'-'}</td><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider);text-align:center"><span style="font-weight:600">${s.result||'-'}</span></td><td style="padding:.4rem .6rem;border-bottom:1px solid var(--divider)">${s.action||'-'}</td></tr>`).join('')
+    : '<tr><td colspan="3" style="padding:.5rem;color:var(--muted)">-</td></tr>';
+
+  // 참석자 렌더
+  const attendeesHtml = (l.attendees && l.attendees.length)
+    ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.3rem">${l.attendees.map(a=>`<div style="padding:.3rem .5rem;background:var(--surface);border-radius:6px;font-size:.85rem;text-align:center">${a}</div>`).join('')}</div>`
+    : '<span style="color:var(--muted)">-</span>';
+
+  // 사진 렌더
+  const photosHtml = (l.photos && l.photos.length)
+    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${l.photos.map((url,pi)=>{
+        const thumb=url.startsWith('data:')?url:url+'&sz=w600';
+        return `<img src="${thumb}" style="height:130px;border-radius:8px;cursor:pointer;object-fit:cover;max-width:48%;" alt="현장사진${pi+1}" onclick="window.open('${url}','_blank')" onerror="this.style.display='none'"/>`;
+      }).join('')}</div>` : '';
+
   document.getElementById('det-body').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;font-size:clamp(.875rem,.8rem + .35vw,1rem)">
-      <div><span style="color:var(--muted)">작성자</span><br><strong>${l.author}</strong></div>
-      <div><span style="color:var(--muted)">참석 인원</span><br><strong>${l.count}명</strong></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem;font-size:.9rem">
+      <div><span style="color:var(--muted);font-size:.8rem">작업명</span><br><strong>${l.jobname||'-'}</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">TBM 장소</span><br><strong>${l.tbmPlace||'-'}</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">TBM 리더</span><br><strong>${l.author||'-'}</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">소속 / 직책</span><br><strong>${l.leaderDept||'-'} / ${l.leaderTitle||'-'}</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">참석 인원</span><br><strong>${l.count}명</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">위험성평가</span><br><strong style="color:${l.riskAssess==='yes'?'var(--success)':'var(--muted)'}">${l.riskAssess==='yes'?'✅ 실시':'미실시'}</strong></div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;font-size:clamp(.875rem,.8rem + .35vw,1rem)">
-      <div><span style="color:var(--muted)">투입 장비 수</span><br><strong>${l.equipCount||0}대</strong></div>
-      <div><span style="color:var(--muted)">장비 종류</span><br><strong>${l.equipType||'-'}</strong></div>
-      <div><span style="color:var(--muted)">신규 근로자</span><br><strong>${l.newWorker||0}명 ${l.newWorkerBriefed?'<span style="color:var(--success);font-size:.8rem">✅설명완료</span>':'<span style="color:var(--muted);font-size:.8rem">-</span>'}</strong></div>
-    </div>
+
     <div class="det-sec"><div class="det-title">작업 내용</div><div class="det-body">${l.work||'-'}</div></div>
-    <div class="det-sec"><div class="det-title">위험 요소</div><div class="det-body">${l.risk||'-'}</div></div>
-    <div class="det-sec"><div class="det-title">안전 포인트</div><div class="det-body">${l.safety||'-'}</div></div>
-    ${l.checklist&&l.checklist.length?`<div class="det-sec"><div class="det-title">체크리스트</div><div class="det-body">${l.checklist.map(c=>'✅ '+c).join('\n')}</div></div>`:''}
-    ${l.note?`<div class="det-sec"><div class="det-title">특이사항</div><div class="det-body">${l.note}</div></div>`:''}
-    ${l.photos&&l.photos.length?`<div class="det-sec" style="margin-top:.75rem"><div class="det-title">📷 현장 사진</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${l.photos.map((url,pi)=>{const isData=url.startsWith('data:');const thumb=isData?url:url.replace('/uc?id=','/thumbnail?id=')+'&sz=w600';return '<img src="'+thumb+'" style="height:130px;border-radius:8px;cursor:pointer;object-fit:cover;max-width:48%;" alt="현장사진'+(pi+1)+'" onclick="window.open(\''+url+'\',\'_blank\')" onerror="this.src=\''+url+'\'"/>';}).join('')}</div></div>`:''}
-    <div style="font-size:clamp(.75rem,.7rem + .25vw,.875rem);color:var(--faint);margin-top:1rem">등록일시: ${l.createdAt}</div>`;
+
+    <div class="det-sec">
+      <div class="det-title">🔴 잠재위험요인 및 대책</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:.4rem;font-size:.85rem">
+        <thead><tr style="background:var(--surface-offset)">
+          <th style="padding:.4rem .6rem;text-align:left;width:2rem"></th>
+          <th style="padding:.4rem .6rem;text-align:left">잠재위험요인</th>
+          <th style="padding:.4rem .6rem;text-align:left">대책</th>
+        </tr></thead>
+        <tbody>${riskPairsHtml}</tbody>
+      </table>
+    </div>
+
+    <div class="det-sec">
+      <div class="det-title">🎯 중점위험요인</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.4rem;font-size:.85rem">
+        <div style="padding:.5rem;background:var(--surface);border-radius:6px"><div style="color:var(--muted);font-size:.75rem;margin-bottom:.2rem">선정</div>${l.keyRisk||'-'}</div>
+        <div style="padding:.5rem;background:var(--surface);border-radius:6px"><div style="color:var(--muted);font-size:.75rem;margin-bottom:.2rem">대책</div>${l.keyAction||'-'}</div>
+      </div>
+    </div>
+
+    <div class="det-sec">
+      <div class="det-title">✅ 작업 전 안전조치 확인</div>
+      <table style="width:100%;border-collapse:collapse;margin-top:.4rem;font-size:.85rem">
+        <thead><tr style="background:var(--surface-offset)">
+          <th style="padding:.4rem .6rem;text-align:left">항목</th>
+          <th style="padding:.4rem .6rem;text-align:center;width:4rem">조치여부</th>
+          <th style="padding:.4rem .6rem;text-align:left">미조치 내용</th>
+        </tr></thead>
+        <tbody>${safetyHtml}</tbody>
+      </table>
+    </div>
+
+    ${l.dailyCheck?`<div class="det-sec"><div class="det-title">📋 일일 안전점검 결과</div><div class="det-body">${l.dailyCheck}</div></div>`:''}
+    ${l.closing?`<div class="det-sec"><div class="det-title">🏁 작업 후 종료 미팅</div><div class="det-body">${l.closing}</div></div>`:''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin:.75rem 0;font-size:.85rem">
+      <div><span style="color:var(--muted);font-size:.8rem">투입 장비</span><br><strong>${l.equipCount||0}대 ${l.equipType?'('+l.equipType+')':''}</strong></div>
+      <div><span style="color:var(--muted);font-size:.8rem">신규 근로자</span><br><strong>${l.newWorker||0}명 ${l.newWorkerBriefed?'<span style="color:var(--success);font-size:.8rem">✅설명완료</span>':''}</strong></div>
+    </div>
+
+    ${l.attendees&&l.attendees.length?`<div class="det-sec"><div class="det-title">👥 참석자 (${l.attendees.length}명)</div><div style="margin-top:.4rem">${attendeesHtml}</div></div>`:''}
+    ${photosHtml?`<div class="det-sec" style="margin-top:.75rem"><div class="det-title">📷 현장 사진</div>${photosHtml}</div>`:''}
+    <div style="font-size:.75rem;color:var(--faint);margin-top:1rem">등록일시: ${l.createdAt}</div>`;
+
   document.getElementById('detail-overlay').classList.add('open');
 }
 function closeDetail(){ document.getElementById('detail-overlay').classList.remove('open'); detailId=null; }
@@ -661,7 +821,7 @@ function filterLogs(){
   document.getElementById('fl-count').textContent=`총 ${f.length}건`;
   const tb=document.getElementById('fl-tbody'), em=document.getElementById('fl-empty');
   if(!f.length){ tb.innerHTML=''; em.style.display=''; return; } em.style.display='none';
-  tb.innerHTML=f.map(l=>`<tr><td>${l.date}</td><td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${siteColor(sites.indexOf(l.site))};margin-right:.5rem;vertical-align:middle"></span><strong style="color:var(--primary)">${l.site}</strong></td><td>${l.author}</td><td>${l.count}명</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l.work}</td><td style="color:var(--muted);font-size:clamp(.75rem,.7rem + .25vw,.875rem)">${l.createdAt}</td><td><button class="btn btn-ghost btn-sm" onclick="openDetail(${l.id})">보기</button></td></tr>`).join('');
+  tb.innerHTML=f.map(l=>`<tr><td>${l.date}</td><td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${siteColor(sites.indexOf(l.site))};margin-right:.5rem;vertical-align:middle"></span><strong style="color:var(--primary)">${l.site}</strong></td><td>${l.author}</td><td>${l.count}명</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(l.jobname||l.work)}</td><td style="color:var(--muted);font-size:clamp(.75rem,.7rem + .25vw,.875rem)">${l.createdAt}</td><td><button class="btn btn-ghost btn-sm" onclick="openDetail(${l.id})">보기</button></td></tr>`).join('');
 }
 document.getElementById('fl-site').addEventListener('change',filterLogs);
 document.getElementById('fl-month').addEventListener('change',filterLogs);
@@ -733,31 +893,40 @@ function getPhotoBase64(n){
 async function uploadPhotosAndSync(log){
   const btn = document.getElementById('form-submit');
   if(btn) btn.disabled = true;
-  toast('⏳ 저장 중...');
-  // 1단계: 사진 없이 먼저 시트에 저장
+  toast('⏳ 일지 저장 중...');
+
+  // 사진 base64 수집
+  const photoDataURLs = [];
+  for(let n=1; n<=2; n++){
+    const b64 = getPhotoBase64(n);
+    if(b64) photoDataURLs.push('data:image/jpeg;base64,'+b64);
+  }
+  if(photoDataURLs.length > 0) log.photos = photoDataURLs;
+
+  // 시트에 저장 (photos 포함 - savePhotos 액션으로 별도 저장)
   await syncLog(log);
   const logIdx = logs.findIndex(x => x.id === log.id);
   if(logIdx >= 0) logs[logIdx] = log;
-  // 2단계: 사진 수집 (압축된 base64)
-  const photos = [];
-  for(let n=1; n<=2; n++){
-    const b64 = getPhotoBase64(n);
-    if(b64) photos.push(b64);
-  }
-  // 3단계: 드라이브 업로드 → URL 받아서 시트·로컬 업데이트
-  if(photos.length > 0 && SCRIPT_URL){
-    toast('📤 사진 업로드 중...');
+
+  // 사진을 별도로 savePhotos 액션으로 전송
+  if(photoDataURLs.length > 0 && SCRIPT_URL){
+    toast('📤 사진 저장 중...');
     try{
-      const r = await fetch(SCRIPT_URL, {method:'POST', redirect:'follow',
-        body: JSON.stringify({action:'uploadPhotos', logId:log.id, site:log.site, photos})});
-      const d = JSON.parse(await r.text());
-      if(d.urls && d.urls.length){
-        log.photos = d.urls;
-        if(logIdx >= 0) logs[logIdx] = log;
-        console.log('✅ 드라이브 URL 저장:', d.urls);
-      }
-    }catch(e){ console.warn('사진 업로드 실패:', e); toast('⚠️ 사진 업로드 실패 (일지는 저장됨)'); }
+      const r = await fetch(SCRIPT_URL, {
+        method:'POST',
+        redirect:'follow',
+        headers:{'Content-Type':'text/plain'},
+        body: JSON.stringify({action:'savePhotos', logId:log.id, photos:photoDataURLs})
+      });
+      const text = await r.text();
+      const d = JSON.parse(text);
+      if(d.result === 'ok') console.log('✅ 사진 시트 저장 완료');
+      else console.warn('사진 저장 응답:', text);
+    }catch(e){
+      console.warn('사진 저장 오류:', e.message);
+    }
   }
+
   clearPhoto(1); clearPhoto(2);
   if(btn) btn.disabled = false;
   toast('✅ TBM 일지가 저장되었습니다!');
